@@ -15,6 +15,10 @@
   <a href="#"><img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="license"></a>
 </p>
 
+<p align="center">
+  <img src="assets/demo.png" alt="Claude Desktop using whoop-mcp to check today's recovery — 73% green with HRV, resting HR, and sleep performance breakdown" width="820">
+</p>
+
 47 tools, structured zod-validated outputs, bundled catalogs (372 exercises, 308 behaviors, 203 sports), write-safety harness, automatic Cognito token refresh, session-scoped catalog gate. TypeScript 6, Node 24, 127 tests.
 
 ---
