@@ -2,8 +2,6 @@
 
 Pull requests welcome. The codebase is small and the test suite is fast, so iteration is quick.
 
-> **Before you contribute, read the ToS notice in the [README](README.md#-this-violates-whoops-terms-of-service).** This MCP wraps Whoop's private iOS API in a way that violates [Whoop's Terms of Use](https://www.whoop.com/us/en/whoop-terms-of-use/) Section 4(iii) and 4(v). Contributing to this project is fine; running your contribution against your own Whoop account is your call, and could result in Whoop suspending or terminating your Membership.
-
 ---
 
 ## Quick orientation

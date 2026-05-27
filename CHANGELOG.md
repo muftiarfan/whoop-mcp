@@ -2,8 +2,6 @@
 
 All notable changes to this project. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
-> **Note:** This MCP violates [Whoop's Terms of Use](https://www.whoop.com/us/en/whoop-terms-of-use/) Section 4(iii) (web data extraction) and 4(v) (reverse engineering). Whoop reserves the right to suspend or terminate accounts that violate the ToS. Use at your own discretion. See [README → ⚠️ This violates Whoop's Terms of Service](README.md#-this-violates-whoops-terms-of-service) for the full picture.
-
 ## [Unreleased]
 
 ### Added

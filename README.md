@@ -37,19 +37,7 @@
 
 47 tools, structured zod-validated outputs, bundled catalogs (372 exercises, 308 behaviors, 203 sports), write-safety harness, automatic Cognito token refresh, session-scoped catalog gate. TypeScript 6, Node 24, 127 tests.
 
----
-
-## ⚠️ This violates Whoop's Terms of Service
-
-This MCP wraps Whoop's **private iOS API**, which was discovered via mitmproxy. Doing that is explicitly prohibited by [Whoop's Terms of Use](https://www.whoop.com/us/en/whoop-terms-of-use/) **Section 4**, which forbids:
-
-- **Reverse engineering** the Services or any embedded Software (Section 4(v))
-- **Web scraping, web harvesting, or web data extraction** from WHOOP Services — *"even if the Account owner gives permission"* (Section 4(iii))
-- Any other use of the Services "in violation of this Agreement" (Section 4(vii))
-
-**Using this MCP is not illegal — but it is not allowed by Whoop's ToS.** Whoop reserves the right to take disciplinary action against accounts that violate the ToS, including (per their published policy) terminating your Membership, suspending API access, and barring you from future Memberships.
-
-**Use this at your own discretion.** Nobody affiliated with this project will be paying your account-reactivation fee if Whoop bans you. If that risk is unacceptable, use [Whoop's public OAuth API](https://developer.whoop.com/) instead — it's the supported path. The trade-off is that the OAuth API exposes a much smaller, read-only slice (see [Why this exists](#why-this-exists) for the comparison).
+> *Note: this works through Whoop's private iOS API rather than the public OAuth API. That isn't what Whoop's terms allow — see the [FAQ](#faq) if you want the full picture before installing.*
 
 ---
 
@@ -2565,7 +2553,7 @@ The MCP is open source. Every line of code that touches your Whoop data is audit
 
 | Approach | Pros | Cons |
 |---|---|---|
-| **This MCP** | Full iOS API surface (47 total: 31 reads + 14 writes + 2 escape hatches), writes supported, structured outputs, auto-refresh, write-safety, session-scoped catalog gate | **Violates Whoop's ToS Section 4(iii) + 4(v); Whoop can suspend or terminate your account.** Reverse-engineered (Whoop could break it at any time); local install required |
+| **This MCP** | Full iOS API surface (47 total: 31 reads + 14 writes + 2 escape hatches), writes supported, structured outputs, auto-refresh, write-safety, session-scoped catalog gate | Unsupported by Whoop (see [FAQ](#faq) for what that means); reverse-engineered (Whoop could break it at any time); local install required |
 | Whoop's public OAuth API | Official, supported, 6 webhook events, scoped permissions | Only 13 endpoints; read-only; no journal/strength/stress/coach/smart-alarm/trends/hypnogram; numeric `sport_id` removed 2025-09-01; 429s exist |
 | HealthKit-based scraper | Bypass Whoop entirely; uses Apple's data sync | Loses Whoop-specific data (recovery score, journal, coach); requires iOS device involvement |
 | Direct mitmproxy capture | See everything | Manual, not programmable, doesn't scale |
@@ -2597,17 +2585,11 @@ Phase 9 of discovery (more mitm captures of niche flows) would unlock most of th
 
 ## FAQ
 
-**Q: Is this against Whoop's Terms of Service?**
-A: **Yes.** Specifically, Section 4 of [Whoop's Terms of Use](https://www.whoop.com/us/en/whoop-terms-of-use/) prohibits reverse engineering the Services or any embedded Software (4(v)), and prohibits web scraping/harvesting/extraction from Whoop Services — *"even if the Account owner gives permission"* (4(iii)). This MCP does both: the iOS API surface was discovered via mitmproxy (reverse engineering the embedded Software's network layer), and every tool call extracts structured data from a non-public surface. It's not illegal — Whoop's API isn't protected by anti-circumvention law in the way DRM is — but it is not allowed by the contract you agreed to when you accepted the ToS.
+**Q: Is this supported by Whoop?**
+A: No. This MCP works through Whoop's private iOS API, which isn't a public surface they intend for third-party tools. Whoop's terms reserve the right to take action against accounts they catch using unsupported integrations — realistically that means suspending API access or terminating the membership. The author has used the MCP heavily for weeks without issue, and traffic patterns look similar to normal app usage, but there's no guarantee. If losing your Whoop account would be a problem for you, don't use this.
 
-**Q: Will Whoop ban my account for using this?**
-A: They could. Their ToS reserves the right to suspend or terminate access "at any time" if they determine you've materially breached the agreement (Section 21). In practice: as of this writing, the project's authors have used the MCP heavily for weeks with no account flags, and the traffic patterns look very similar to normal app usage (single-digit requests per second, real iOS app headers, real Cognito-authenticated bearer tokens). That said — **there is no guarantee**. Whoop could change their detection at any time, or notice this repo and act. If you can't afford to lose your Whoop account (or get re-charged a setup fee, or lose your data), don't use this. The trade-off you're making: ~5-10x more API surface vs the supported OAuth API, in exchange for sitting in a category Whoop has explicitly said is not permitted.
-
-**Q: What's the worst case if Whoop notices?**
-A: Per their published policy, possible outcomes include: (1) suspension of API access (you'd still own the device, you'd just lose data sync), (2) account termination with no refund of remaining Membership Fees (Section 6), (3) being barred from future Memberships (Section 21.4: "you shall not attempt to re-register"), or (4) legal action — extremely unlikely for personal use, but technically available to them under the ToS. Of these, (1) and (2) are realistic; (3) is plausible; (4) basically never happens for individual users.
-
-**Q: Why not use Whoop's public OAuth API?**
-A: It's 13 endpoints, all read-only, no journal, no strength, no stress, no coach, no smart alarm, no trends beyond a single recovery score per day. Whoop also pulled numeric `sport_id` past 2025-09-01 (now `sport_name` strings only). See the comparison table in "Why this exists" for the full diff. If you only need recovery score + sleep stage totals + workout list, the OAuth API is the right answer.
+**Q: Why not use Whoop's public OAuth API instead?**
+A: It's 13 endpoints, all read-only, no journal, no strength, no stress, no coach, no smart alarm, no trends beyond a single recovery score per day. Whoop also pulled numeric `sport_id` past 2025-09-01 (now `sport_name` strings only). If you only need recovery score + sleep stage totals + workout list, the OAuth API is the right answer.
 
 **Q: Will this work with the Whoop 4.0 vs 5.0 strap?**
 A: Yes — the API doesn't care which strap you have. It cares about your account.
@@ -2663,9 +2645,8 @@ Not shipped with this package (lives in a sibling `whoop-testing` archive — as
 
 ## Disclaimers
 
-- **This violates Whoop's Terms of Service.** Specifically Section 4(v) (reverse engineering the embedded Software) and Section 4(iii) (web scraping / data extraction, even with the account owner's permission). It is not illegal — but it is not allowed. See the [⚠️ banner at the top of this README](#-this-violates-whoops-terms-of-service) and the [FAQ](#faq) for the full breakdown of possible disciplinary action.
-- **Use at your own discretion.** If Whoop terminates your account, suspends your data sync, or bars you from re-registering, that's the risk you accept by using this. Nobody affiliated with this project is going to pay your reactivation fee or recover your historical data.
-- **This is NOT affiliated with Whoop.** "WHOOP" is a trademark of WHOOP, Inc. This is a community-built tool that interacts with surfaces Whoop has not published.
+- **This is NOT affiliated with Whoop.** "WHOOP" is a trademark of WHOOP, Inc. This is a community-built tool that interacts with surfaces Whoop has not published. See the [FAQ](#faq) for the practical implications.
+- **Use at your own discretion.** Nobody affiliated with this project is going to recover your account or your historical data if anything goes sideways.
 - **The API surface is reverse-engineered.** Whoop can change response shapes at any time without notice. The zod schemas surface drift as `WhoopProjectionError` instead of silent corruption — see [Fixing a broken projection](#fixing-a-broken-projection) for the recovery loop.
 - **No warranty.** If you 422 something and lose data, that's on you.
 - **Respect Whoop's rate limits.** We've not hit any in normal usage. Don't be the person who triggers a backend alert that gets every user of this MCP banned.

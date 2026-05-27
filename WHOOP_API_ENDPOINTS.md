@@ -1,14 +1,8 @@
 # Whoop iOS API — Deep Endpoint Research
 
-> Full reverse-engineering writeup of Whoop's private iOS API surface. 47 microservices, 384 deduped unique operations (filename `endpoints-dedup-419.txt` retains the pre-final-dedup count), ~85 KB of captured request bodies, ~6 MB of captured response payloads. Compiled from three mitmproxy capture sessions across two accounts.
+> Full writeup of Whoop's private iOS API surface. 47 microservices, 384 deduped unique operations (filename `endpoints-dedup-419.txt` retains the pre-final-dedup count), ~85 KB of captured request bodies, ~6 MB of captured response payloads. Compiled from three mitmproxy capture sessions across two accounts.
 
-> ## ⚠️ Compliance notice
->
-> Everything documented below was obtained by **reverse engineering the network traffic** between the Whoop iOS app and `api.prod.whoop.com`. This is explicitly prohibited by [Whoop's Terms of Use](https://www.whoop.com/us/en/whoop-terms-of-use/) Section 4(v) (reverse engineering the Services or any embedded Software) and Section 4(iii) (web scraping / harvesting / data extraction, *even if the Account owner gives permission*). It is not illegal — but it is not permitted by the user agreement.
->
-> This document exists because the research happened, and full documentation is more responsible than partial documentation that hides the methodology. It is *not* an endorsement that you should run mitm captures against your own account. If you do — Whoop reserves the right to suspend your access, terminate your Membership, or bar future re-registration (ToS Sections 4(vii), 21). Use this at your own discretion.
-
-**This document is for developers**. If you want to understand what the MCP does, read [`README.md`](README.md). If you want to know how Whoop's private API actually works at the wire level — what bytes go in, what bytes come out, what enums exist, what status codes mean what, how auth was reverse-engineered — read this.
+**This document is for developers**. If you want to understand what the MCP does, read [`README.md`](README.md). If you want to know how Whoop's private API actually works at the wire level — what bytes go in, what bytes come out, what enums exist, what status codes mean what, how auth works — read this.
 
 The whoop-api-reference.md companion file is the *summary* of this research. This is the *primary source*. Everything in this document was observed in actual captured network traffic.
 
