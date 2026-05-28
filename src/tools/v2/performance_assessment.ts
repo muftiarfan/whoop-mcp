@@ -5,15 +5,22 @@ import { PerformanceAssessmentOut } from "../../schemas/performance.js";
 import { projectPerformanceAssessment } from "../../projections/performance_assessment.js";
 import { WhoopProjectionError } from "../../whoop/errors.js";
 import { jsonOut } from "../../whoop/json_out.js";
+import { getTimezone, zonedParts } from "../../lib/timezone.js";
 
+// "now" as a wall-clock timestamp in the USER's timezone with the user's offset
+// (e.g. "2026-05-27T13:05:00-0700"). Uses the configured WHOOP_TIMEZONE / profile
+// TZ rather than the server's offset — `getTimezoneOffset()` returns 0 on a UTC
+// host like Fly, which produced wrong local times before.
 function localIsoNow(): string {
   const now = new Date();
-  const offsetMin = -now.getTimezoneOffset();
+  const p = zonedParts(now, getTimezone());
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  // Offset = (the wall-clock components read as if UTC) minus the real instant.
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const offsetMin = Math.round((asUtc - now.getTime()) / 60000);
   const sign = offsetMin >= 0 ? "+" : "-";
-  const absMin = Math.abs(offsetMin);
-  const hh = String(Math.floor(absMin / 60)).padStart(2, "0");
-  const mm = String(absMin % 60).padStart(2, "0");
-  return `${now.toISOString().slice(0, 19)}${sign}${hh}${mm}`;
+  const abs = Math.abs(offsetMin);
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}${sign}${pad(Math.floor(abs / 60))}${pad(abs % 60)}`;
 }
 
 export function registerPerformanceAssessment(server: McpServer, client: WhoopClient): void {

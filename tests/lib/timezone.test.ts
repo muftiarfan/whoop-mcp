@@ -6,7 +6,9 @@ import {
   getTimezone,
   setProfileTimezone,
   getProfileTimezone,
+  zonedParts,
 } from "../../src/lib/timezone.js";
+import { isoDay } from "../../src/lib/dates.js";
 
 describe("isUtcIso", () => {
   it("matches second-precision UTC ISO", () => {
@@ -29,6 +31,72 @@ describe("isUtcIso", () => {
     expect(isUtcIso("Mon May 25 2026")).toBe(false);
     expect(isUtcIso("hello")).toBe(false);
     expect(isUtcIso("")).toBe(false);
+  });
+
+  it("matches Whoop's +0000 form (journal / pg-range endpoints)", () => {
+    expect(isUtcIso("2026-05-23T07:35:46.220+0000")).toBe(true);
+  });
+
+  it("matches the +00:00 form", () => {
+    expect(isUtcIso("2026-05-23T07:35:46+00:00")).toBe(true);
+  });
+
+  it("still rejects a real non-zero offset (already localized)", () => {
+    expect(isUtcIso("2026-05-25T15:30:00-07:00")).toBe(false);
+    expect(isUtcIso("2026-05-26T07:30:00+09:00")).toBe(false);
+  });
+});
+
+describe("toLocalIso with +0000 / +00:00 UTC forms", () => {
+  it("converts +0000 to local offset", () => {
+    expect(toLocalIso("2026-05-23T07:35:46.220+0000", "America/Los_Angeles"))
+      .toBe("2026-05-23T00:35:46.220-07:00");
+  });
+
+  it("converts +00:00 to local offset", () => {
+    expect(toLocalIso("2026-05-25T22:30:00+00:00", "America/Los_Angeles"))
+      .toBe("2026-05-25T15:30:00-07:00");
+  });
+
+  it("converts +0000 with a fixed-offset target tz", () => {
+    expect(toLocalIso("2026-05-23T07:35:46.220+0000", "-0700"))
+      .toBe("2026-05-23T00:35:46.220-07:00");
+  });
+
+  it("localizeTimestamps catches +0000 fields nested in objects", () => {
+    const input = { journal: { lower: "2026-05-23T07:35:46.220+0000", note: "hi" } };
+    expect(localizeTimestamps(input, "America/Los_Angeles")).toEqual({
+      journal: { lower: "2026-05-23T00:35:46.220-07:00", note: "hi" },
+    });
+  });
+});
+
+describe("zonedParts + isoDay (input-side, user-TZ 'today')", () => {
+  it("zonedParts resolves the user's calendar day, not the server's", () => {
+    // 2026-05-27 04:00 UTC is still 2026-05-26 21:00 in LA — the day must be the 26th
+    const p = zonedParts(new Date("2026-05-27T04:00:00Z"), "America/Los_Angeles");
+    expect(p.year).toBe(2026);
+    expect(p.month).toBe(5);
+    expect(p.day).toBe(26);
+    expect(p.hour).toBe(21);
+  });
+
+  it("zonedParts works with a fixed offset", () => {
+    const p = zonedParts(new Date("2026-05-27T04:00:00Z"), "-0700");
+    expect(p.day).toBe(26);
+    expect(p.hour).toBe(21);
+  });
+
+  it("isoDay returns the user-TZ calendar day for a late-evening instant", () => {
+    // Without TZ awareness this would return 2026-05-27 (the UTC day)
+    const env = process.env.WHOOP_TIMEZONE;
+    process.env.WHOOP_TIMEZONE = "America/Los_Angeles";
+    try {
+      expect(isoDay(new Date("2026-05-27T04:00:00Z"))).toBe("2026-05-26");
+    } finally {
+      if (env === undefined) delete process.env.WHOOP_TIMEZONE;
+      else process.env.WHOOP_TIMEZONE = env;
+    }
   });
 });
 

@@ -4,6 +4,13 @@ All notable changes to this project. Format roughly follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+
+- **Timezone, both directions.** Two bugs were causing the AI to see wrong clock values:
+  - *Output:* `localizeTimestamps` only matched `Z`-suffixed timestamps, but Whoop's journal + pg-range endpoints emit the `+0000` form (e.g. `2026-05-23T07:35:46.220+0000`). Those passed through as UTC. The matcher now catches `Z`, `+0000`, and `+00:00`, all of which mean UTC, and rewrites them to the user's local offset.
+  - *Input:* `todayIso()` (the default for ~12 tools' `date` param) computed "today" from the server's calendar day. On a UTC host like Fly, that's a day ahead of the user during their evening, so "how am I doing today" could query tomorrow. It now resolves the calendar day in the configured `WHOOP_TIMEZONE` / auto-detected profile TZ via a new `zonedParts()` helper. `performance_assessment` had the same class of bug (`getTimezoneOffset()` returns 0 on UTC hosts) — fixed to use the configured TZ. 10 new timezone tests (164 total).
+- **`whoop_lift_history` description was misleading.** It claimed "set-level detail" but its `sets[]` array is always empty — the `/cardio-details` endpoint only exposes per-exercise aggregates. So when asked for individual sets, the AI called `lift_history` and got nothing useful. The description now states it returns per-exercise aggregates and routes per-set questions to `whoop_lift_exercise`, which already returns every set (reps/weight/medal per set) correctly.
+
 ### Added
 
 - **`whoop_communities`** (new tool, brings total to 48). Lists the communities you're a member of (teams, friend groups) with member counts and — optionally — your rank in each across a chosen metric (strain/sleep/recovery) over a window (day/week/month). Complements `whoop_leaderboard`: use `whoop_communities` to discover community IDs, then drill into one with `whoop_leaderboard`. Source: `GET /community-service/v1/communities/memberships` (already in use by `whoop_leaderboard` for community auto-discovery). Schema is permissive at the record level since the per-record field set hasn't been captured against a live account at the time of release — a `WhoopProjectionError` from this tool is the signal that Whoop's actual shape differs from the inferred one and the projection needs tightening.

@@ -17,7 +17,12 @@
 // Date-only strings ("2026-05-25") and timestamps that already carry an offset
 // pass through unchanged — only "*Z" UTC timestamps are converted.
 
-const UTC_ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+// Matches a UTC timestamp in any of the forms Whoop emits: "...Z", "...+0000",
+// or "...+00:00" (the journal / pg-range endpoints use the +0000 form, the
+// deep-dive endpoints use Z). All three mean UTC and should be localized.
+const UTC_ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:?00)$/;
+// Trailing UTC marker (Z / +0000 / +00:00) — used to strip before re-suffixing.
+const UTC_SUFFIX_RE = /(?:Z|\+00:?00)$/;
 // Matches both Whoop's "+0000"/"-0700" form and standard "+00:00"/"-07:00" form.
 const FIXED_OFFSET_RE = /^([+-])(\d{2}):?(\d{2})$/;
 
@@ -89,7 +94,7 @@ export function toLocalIso(utcIso: string, tz: string = getTimezone()): string {
     const h = pad(shifted.getUTCHours());
     const m = pad(shifted.getUTCMinutes());
     const s = pad(shifted.getUTCSeconds());
-    const msMatch = utcIso.match(/\.(\d+)Z$/);
+    const msMatch = utcIso.match(/\.(\d+)(?:Z|\+00:?00)$/);
     const fraction = msMatch ? `.${msMatch[1]}` : "";
     return `${Y}-${M}-${D}T${h}:${m}:${s}${fraction}${fixedOffset.sign}${fixedOffset.hh}:${fixedOffset.mm}`;
   }
@@ -121,7 +126,7 @@ export function toLocalIso(utcIso: string, tz: string = getTimezone()): string {
   const s = get("second");
 
   // Preserve sub-second precision from the original.
-  const msMatch = utcIso.match(/\.(\d+)Z$/);
+  const msMatch = utcIso.match(/\.(\d+)(?:Z|\+00:?00)$/);
   const fraction = msMatch ? `.${msMatch[1]}` : "";
 
   const offsetRaw = get("timeZoneName"); // "GMT-07:00" or "GMT" for UTC
@@ -159,4 +164,47 @@ export function localizeTimestamps<T>(value: T, tz: string = getTimezone()): T {
     return out as T;
   }
   return value;
+}
+
+/**
+ * Returns the calendar components of an instant as observed in the user's
+ * timezone. Handles both IANA names (`America/Los_Angeles`) and fixed offsets
+ * (`-0700` / `-07:00`, the form Whoop's profile returns).
+ *
+ * This is what makes "today" correct on a UTC server: `new Date()` is the
+ * right instant, but `.getDate()` would give the server's (UTC) calendar day.
+ * This converts to the user's calendar day instead.
+ */
+export function zonedParts(
+  date: Date = new Date(),
+  tz: string = getTimezone(),
+): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const fixed = parseFixedOffset(tz);
+  if (fixed) {
+    const offsetMin = (Number(fixed.hh) * 60 + Number(fixed.mm)) * (fixed.sign === "+" ? 1 : -1);
+    const shifted = new Date(date.getTime() + offsetMin * 60 * 1000);
+    return {
+      year: shifted.getUTCFullYear(),
+      month: shifted.getUTCMonth() + 1,
+      day: shifted.getUTCDate(),
+      hour: shifted.getUTCHours(),
+      minute: shifted.getUTCMinutes(),
+      second: shifted.getUTCSeconds(),
+    };
+  }
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (t: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((p) => p.type === t)?.value ?? "0");
+  let hour = get("hour");
+  if (hour === 24) hour = 0; // some locales render midnight as 24
+  return { year: get("year"), month: get("month"), day: get("day"), hour, minute: get("minute"), second: get("second") };
 }

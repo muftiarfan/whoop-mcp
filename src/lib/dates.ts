@@ -1,9 +1,12 @@
+import { zonedParts } from "./timezone.js";
+
 export function isoDay(d: Date = new Date()): string {
-  // YYYY-MM-DD in local time (matches Whoop's day-boundary convention)
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  // YYYY-MM-DD in the USER's timezone, not the server's. On a UTC host (Fly,
+  // Docker) `d.getDate()` returns the UTC calendar day — a day ahead of the
+  // user's local day during their evening, so "today" queries broke. zonedParts
+  // resolves the calendar day in the configured WHOOP_TIMEZONE / profile TZ.
+  const { year, month, day } = zonedParts(d);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function todayIso(): string {

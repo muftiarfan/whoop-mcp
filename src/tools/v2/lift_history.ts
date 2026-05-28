@@ -10,7 +10,7 @@ import { rangeFromDays } from "../../lib/dates.js";
 export function registerLiftHistory(server: McpServer, client: WhoopClient): void {
   server.tool(
     "whoop_lift_history",
-    "Recent strength workouts with set-level detail (vs whoop_workouts which is generic).",
+    "Recent strength workouts with PER-EXERCISE aggregates (set count, total reps, tonnage, medals per exercise). Does NOT include individual set reps/weights — for that, use whoop_lift_exercise, which returns every set (e.g. set 1: 10 reps @ 180lbs, set 2: ...) for a given exercise across your history.",
     {
       limit: z.number().int().min(1).max(20).default(10),
       end_date: z.iso.date().optional(),
