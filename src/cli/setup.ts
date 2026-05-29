@@ -471,6 +471,13 @@ async function deployCloudRun(ctx: DeployCtx): Promise<string | null> {
           cmd: ["gcloud", ["services", "enable", "run.googleapis.com", "cloudbuild.googleapis.com", "artifactregistry.googleapis.com"]],
         },
         {
+          // gcloud run deploy --source builds via the project's COMPUTE default
+          // service account, which on new projects lacks build permissions
+          // (PERMISSION_DENIED resolving the source). Grant the builder role.
+          desc: "grant Cloud Build access to the default service account",
+          cmd: ["sh", ["-c", 'P="$(gcloud config get-value project 2>/dev/null)"; N="$(gcloud projects describe "$P" --format=\'value(projectNumber)\' 2>/dev/null)"; gcloud projects add-iam-policy-binding "$P" --member="serviceAccount:${N}-compute@developer.gserviceaccount.com" --role=roles/cloudbuild.builds.builder --condition=None']],
+        },
+        {
           desc: "deploy from source (Cloud Build builds the Dockerfile)",
           cmd: ["gcloud", [
             "run", "deploy", ctx.appName,
