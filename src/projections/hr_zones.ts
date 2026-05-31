@@ -12,11 +12,16 @@ type ZoneId = typeof VALID_ZONE_IDS[number];
 export function projectHrZones(input: ProjectHrZonesInput): HrZonesOutT {
   const zones = isObject(input.zones) ? input.zones as Record<string, unknown> : {};
   const settings = isObject(input.settings) ? input.settings as Record<string, unknown> : {};
-  const maxHrEntry = isObject(zones.max_hr_entry_field)
-    ? zones.max_hr_entry_field as Record<string, unknown>
-    : isObject(settings.heart_rate_entry_row)
-      ? settings.heart_rate_entry_row as Record<string, unknown>
-      : {};
+
+  // Max HR lives in settings.heart_rate_entry_row (an array of {id, value} rows,
+  // id "MAX_HR"); fall back to the zones-screen entry field.
+  let maxHr: number | null = null;
+  for (const r of asArray(settings.heart_rate_entry_row)) {
+    if (isObject(r) && asString(r.id) === "MAX_HR") maxHr = asNumber(r.value);
+  }
+  if (maxHr === null && isObject(zones.max_hr_entry_field)) {
+    maxHr = asNumber((zones.max_hr_entry_field as Record<string, unknown>).value);
+  }
 
   const zoneList = asArray(zones.zones)
     .map((z) => {
@@ -30,7 +35,7 @@ export function projectHrZones(input: ProjectHrZonesInput): HrZonesOutT {
     .filter((z): z is { id: ZoneId; min: number; max: number } => z !== null);
 
   return {
-    max_hr: asNumber(maxHrEntry.value),
+    max_hr: maxHr,
     is_custom: asBool(zones.is_custom) ?? false,
     effective_timestamp: asString(zones.effective_timestamp),
     zones: zoneList,

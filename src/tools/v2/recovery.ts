@@ -10,12 +10,20 @@ import { todayIso } from "../../lib/dates.js";
 export function registerRecovery(server: McpServer, client: WhoopClient): void {
   server.tool(
     "whoop_recovery",
-    "Recovery deep-dive: score, state, HRV (current + baseline), RHR (current + baseline), respiratory rate, SpO2, skin temp, sleep performance. (the per-metric data is in the typed hrv/rhr/etc. fields; the generic contributors[] array and calibration_state are empty/null in the current tile shape.)",
+    "Recovery deep-dive: score, state, HRV and RHR (each with baseline), respiratory rate, SpO2, skin temp, and sleep performance. (The generic contributors[] array and calibration_state are empty in the current tile shape — the per-metric data is in the typed fields.)",
     { date: z.iso.date().optional().describe("YYYY-MM-DD. Defaults to today.") },
     async ({ date }) => {
       const d = date ?? todayIso();
-      const raw = await client.get("/home-service/v1/deep-dive/recovery", { date: d });
-      const projected = projectRecovery(raw, d);
+      // Window the date so the lightweight recovery record (which carries SpO2 +
+      // skin temp, absent from the deep-dive tiles) is in range.
+      const dayMs = Date.parse(`${d}T00:00:00.000Z`);
+      const start = new Date(dayMs - 86_400_000).toISOString();
+      const end = new Date(dayMs + 2 * 86_400_000).toISOString();
+      const [raw, recoveryV2] = await Promise.all([
+        client.get("/home-service/v1/deep-dive/recovery", { date: d }),
+        client.get("/developer/v2/recovery", { start, end, limit: "10" }).catch(() => null),
+      ]);
+      const projected = projectRecovery(raw, d, recoveryV2);
       try {
         const out = RecoveryOut.parse(projected);
         return { content: [{ type: "text", text: jsonOut(out) }] };

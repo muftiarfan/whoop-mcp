@@ -1,5 +1,5 @@
 import type { TrendOutT } from "../schemas/trend.js";
-import { isObject, asArray, asNumber, asString, labelToNumber } from "../lib/walk.js";
+import { isObject, asArray, asNumber, asString, labelToNumber, timeLabelToMs } from "../lib/walk.js";
 
 // Whoop's /progression-service/v3/trends/{metric} returns named segments:
 //   week_time_segment / month_time_segment / six_month_time_segment / year_time_segment
@@ -38,6 +38,14 @@ interface PointOut {
   value_display: string | null;
 }
 
+// A display string like "41", "1,644", "97%", or a duration "11:14"/"0:05".
+// labelToNumber handles plain/percent/comma numbers; durations fall through to
+// timeLabelToMs (→ milliseconds), matching the metric's avg/min/max units which
+// Whoop also reports in ms for time-based metrics. Last resort: the raw value.
+function parseDisplay(display: string | null, rawValue: unknown): number | null {
+  return labelToNumber(display) ?? timeLabelToMs(display) ?? asNumber(rawValue);
+}
+
 function extractPoints(graph: unknown): PointOut[] {
   const g = isObject(graph) ? graph : {};
   const out: PointOut[] = [];
@@ -45,6 +53,7 @@ function extractPoints(graph: unknown): PointOut[] {
     if (!isObject(p)) continue;
     const plot = isObject(p.plot) ? (p.plot as Record<string, unknown>) : null;
     if (!plot) continue;
+    // Line plots: segments[].points[]
     for (const seg of asArray(plot.segments)) {
       if (!isObject(seg)) continue;
       for (const pt of asArray(seg.points)) {
@@ -53,23 +62,38 @@ function extractPoints(graph: unknown): PointOut[] {
         const label = graphLabel ? asString(graphLabel.label) : null;
         const dsd = isObject(pt.data_scrubber_details) ? (pt.data_scrubber_details as Record<string, unknown>) : {};
         const valueDisplay = asString(dsd.value_display) ?? label;
-        const date = asString(dsd.primary_contextual_display) ?? "";
         out.push({
-          date,
-          value: labelToNumber(valueDisplay) ?? asNumber(dsd.value),
+          date: asString(dsd.primary_contextual_display) ?? "",
+          value: parseDisplay(valueDisplay, dsd.value),
           value_display: valueDisplay,
         });
       }
     }
+    // Bar plots: bar_groups[].bars[] — the per-bar data_scrubber_details carries
+    // both the date (primary_contextual_display) and the value (value_display).
+    // This is where time/duration metrics (time in bed, sleep debt, stress
+    // durations, HR-zone time, strength activity time) live; the older code read
+    // the group-level top_label and lost both. We emit one point per group, using
+    // the first bar that carries a value_display.
     for (const grp of asArray(plot.bar_groups)) {
       if (!isObject(grp)) continue;
-      const topLabel = isObject(grp.top_label) ? (grp.top_label as Record<string, unknown>) : null;
-      const label = topLabel ? asString(topLabel.label) : null;
-      const dsd = isObject(grp.data_scrubber_details) ? (grp.data_scrubber_details as Record<string, unknown>) : {};
+      const bars = asArray(grp.bars);
+      const topLabel = isObject(grp.top_label) ? asString((grp.top_label as Record<string, unknown>).label) : null;
+      const candidates = bars.length > 0 ? bars : [grp];
+      let chosen: { date: string; value_display: string | null; raw: unknown } | null = null;
+      for (const bar of candidates) {
+        if (!isObject(bar)) continue;
+        const dsd = isObject(bar.data_scrubber_details) ? (bar.data_scrubber_details as Record<string, unknown>) : {};
+        const vd = asString(dsd.value_display) ?? topLabel;
+        const cand = { date: asString(dsd.primary_contextual_display) ?? "", value_display: vd, raw: dsd.value };
+        if (chosen === null) chosen = cand;
+        if (vd !== null) { chosen = cand; break; }
+      }
+      if (chosen === null) continue;
       out.push({
-        date: asString(dsd.primary_contextual_display) ?? "",
-        value: labelToNumber(label),
-        value_display: label,
+        date: chosen.date,
+        value: parseDisplay(chosen.value_display, chosen.raw),
+        value_display: chosen.value_display,
       });
     }
   }

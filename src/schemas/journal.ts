@@ -54,6 +54,19 @@ export const BehaviorImpactOut = z.object({
 });
 export type BehaviorImpactOutT = z.infer<typeof BehaviorImpactOut>;
 
+// Discovery list — returned by whoop_behavior_impact when called with no
+// behavior_id. Each row's impact_uuid is what you pass back for the full detail.
+export const BehaviorImpactListOut = z.object({
+  behaviors: z.array(z.object({
+    impact_uuid: z.string(),
+    behavior_name: z.string(),
+    direction: z.enum(["positive", "negative", "neutral", "insufficient"]),
+    impact_display: z.string().nullable(),
+    has_sufficient_data: z.boolean(),
+  })),
+});
+export type BehaviorImpactListOutT = z.infer<typeof BehaviorImpactListOut>;
+
 // ─── Write tool outputs ─────────────────────────────────────────────────────
 export const JournalLogOut = withPreview(z.object({
   logged: z.literal(true),

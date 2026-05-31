@@ -8,11 +8,15 @@ import { projectStrain } from "../../src/projections/strain.js";
 import { projectSleep } from "../../src/projections/sleep.js";
 import { projectToday } from "../../src/projections/today.js";
 import { projectTrend } from "../../src/projections/trend.js";
+import { projectCalendar } from "../../src/projections/calendar.js";
+import { projectSleepNeed } from "../../src/projections/sleep_need.js";
 
 import { RecoveryOut } from "../../src/schemas/recovery.js";
 import { StrainOut } from "../../src/schemas/strain.js";
 import { SleepOut } from "../../src/schemas/sleep.js";
 import { TodayOut } from "../../src/schemas/today.js";
+import { CalendarOut } from "../../src/schemas/calendar.js";
+import { SleepNeedOut } from "../../src/schemas/sleep_need.js";
 import { TrendOut } from "../../src/schemas/trend.js";
 
 const load = (name: string): unknown => JSON.parse(readFileSync(resolve("tests/fixtures", name), "utf8"));
@@ -143,8 +147,8 @@ describe("projectSleep (captured)", () => {
 
 describe("projectToday for whoop_day (state=null, past date)", () => {
   const home = load("home.json");
-  const sleep = load("deep_dive_sleep.json");
-  const out = projectToday({ home, sleep, state: null, date: "2026-05-22" });
+  const sleep = load("activity_sleep.json");
+  const out = projectToday({ home, sleep, recovery: load("activity_recovery.json"), state: null, date: "2026-05-22" });
 
   it("parses schema with state=null", () => {
     expect(() => TodayOut.parse(out)).not.toThrow();
@@ -166,8 +170,8 @@ describe("projectToday for whoop_day (state=null, past date)", () => {
 
 describe("projectToday (captured)", () => {
   const home = load("home.json");
-  const sleep = load("deep_dive_sleep.json");
-  const out = projectToday({ home, sleep, state: null, date: "2026-05-23" });
+  const sleep = load("activity_sleep.json");
+  const out = projectToday({ home, sleep, recovery: load("activity_recovery.json"), state: null, date: "2026-05-23" });
 
   it("parses schema", () => {
     expect(() => TodayOut.parse(out)).not.toThrow();
@@ -185,8 +189,41 @@ describe("projectToday (captured)", () => {
   it("counts ACTIVITY tiles for workouts_count > 0", () => {
     expect(out.strain.workouts_count).toBeGreaterThanOrEqual(0);
   });
-  it("populates sleep stages from companion sleep fixture", () => {
-    expect(out.sleep.stages.wake_ms).toBe(2100000);
+  it("populates sleep stages from the companion sleep summary", () => {
+    expect(out.sleep.stages.rem_ms).toBeGreaterThan(0);
+    expect(out.sleep.stages.light_ms).toBeGreaterThan(0);
+    expect(out.sleep.stages.sws_ms).toBeGreaterThan(0);
+    expect(out.sleep.total_sleep_ms).toBeGreaterThan(0);
+  });
+  it("populates recovery HRV + RHR from /developer/v2/recovery", () => {
+    expect(out.recovery.hrv_ms).toBeGreaterThan(0);
+    expect(out.recovery.rhr_bpm).toBeGreaterThan(0);
+  });
+});
+
+describe("projectCalendar (captured)", () => {
+  const out = projectCalendar({ overview: load("calendar_overview.json"), recovery: load("calendar_recovery.json"), date: "2026-05-15" });
+  it("parses schema", () => {
+    expect(() => CalendarOut.parse(out)).not.toThrow();
+  });
+  it("fills the month grid with per-day recovery states", () => {
+    expect(out.month).toBe("2026-05");
+    expect(out.days.length).toBeGreaterThan(25);
+    expect(out.days[0]!.date).toBe("2026-05-01");
+    expect(["GREEN", "YELLOW", "RED"]).toContain(out.days[0]!.recovery_state);
+  });
+});
+
+describe("projectSleepNeed (captured)", () => {
+  const out = projectSleepNeed(load("sleepneed.json"));
+  it("parses schema", () => {
+    expect(() => SleepNeedOut.parse(out)).not.toThrow();
+  });
+  it("recommends a time in bed + converts need breakdown ms to minutes", () => {
+    expect(out.recommended_time_in_bed).toBe("8:45");
+    expect(out.recommended_time_in_bed_minutes).toBeGreaterThan(60);
+    expect(out.need_breakdown.baseline_minutes).toBe(500);
+    expect(out.schedule_state).toBe("OFF");
   });
 });
 

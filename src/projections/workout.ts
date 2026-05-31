@@ -70,24 +70,46 @@ export function projectWorkout(raw: unknown, activityId: string): WorkoutOutT {
     zones[idx] = timeLabelToMs(asString(z.bar_graph_tile_time_display));
   }
 
-  // HR curve from graph_response
+  // HR curve from graph_response. The points carry NO absolute timestamp — the
+  // bpm is in data_scrubber_details.value_display ("76", unit "bpm"), and the
+  // time is encoded as position_x (fraction 0..1 of the workout's [start,end]
+  // window). The old code read dsd.timestamp/pt.timestamp (never present), so
+  // every point was dropped and hr_curve came back empty. We rebuild absolute
+  // timestamps from start + position_x·duration, then evenly downsample (a real
+  // workout has hundreds–thousands of samples — far too many for context).
+  const MAX_HR_POINTS = 120;
   const graph = isObject(root.graph_response) ? (root.graph_response as Record<string, unknown>) : {};
-  const hrCurve: { at: string; bpm: number }[] = [];
+  const startMs = start ? Date.parse(start) : NaN;
+  // Collect bpm points per plot; the HR line is the plot with the most of them
+  // (other plots are zone bands / overlays).
+  let bestPlot: { x: number; bpm: number }[] = [];
   for (const p of asArray(graph.plots)) {
     if (!isObject(p)) continue;
     const plot = isObject(p.plot) ? (p.plot as Record<string, unknown>) : null;
     if (!plot) continue;
+    const pts: { x: number; bpm: number }[] = [];
     for (const seg of asArray(plot.segments)) {
       if (!isObject(seg)) continue;
       for (const pt of asArray(seg.points)) {
         if (!isObject(pt)) continue;
         const dsd = isObject(pt.data_scrubber_details) ? (pt.data_scrubber_details as Record<string, unknown>) : {};
-        const at = asString(dsd.timestamp) ?? asString(pt.timestamp);
-        const graphLabel = isObject(pt.graph_label) ? (pt.graph_label as Record<string, unknown>) : null;
-        const labelStr = graphLabel ? asString(graphLabel.label) : null;
-        const bpm = labelToNumber(asString(dsd.value_display) ?? labelStr) ?? asNumber(dsd.value);
-        if (at && bpm !== null) hrCurve.push({ at, bpm: Math.round(bpm) });
+        if (asString(dsd.unit_display) !== "bpm") continue;
+        const bpm = labelToNumber(asString(dsd.value_display)) ?? asNumber(dsd.value);
+        const x = asNumber(pt.position_x);
+        if (bpm !== null && x !== null) pts.push({ x, bpm: Math.round(bpm) });
       }
+    }
+    if (pts.length > bestPlot.length) bestPlot = pts;
+  }
+  bestPlot.sort((a, b) => a.x - b.x);
+  const sampled = bestPlot.length > MAX_HR_POINTS
+    ? Array.from({ length: MAX_HR_POINTS }, (_, i) => bestPlot[Math.floor((i * bestPlot.length) / MAX_HR_POINTS)]!)
+    : bestPlot;
+  const hrCurve: { at: string; bpm: number }[] = [];
+  if (Number.isFinite(startMs) && durationMs && durationMs > 0) {
+    for (const pt of sampled) {
+      const frac = Math.min(1, Math.max(0, pt.x));
+      hrCurve.push({ at: new Date(startMs + frac * durationMs).toISOString(), bpm: pt.bpm });
     }
   }
 

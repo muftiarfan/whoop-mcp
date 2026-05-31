@@ -1,5 +1,5 @@
 import type { RecoveryOutT } from "../schemas/recovery.js";
-import { isObject, asArray, asString } from "../lib/walk.js";
+import { isObject, asArray, asString, asNumber } from "../lib/walk.js";
 
 // Whoop migrated the /home-service/v1/deep-dive/recovery shape in May 2026 from
 // GRAPHING_CARD tiles (titled "RECOVERY", "HEART RATE VARIABILITY", etc.) to a
@@ -61,7 +61,17 @@ function findContributor(metrics: unknown[], idSuffix: string): Record<string, u
   return null;
 }
 
-export function projectRecovery(raw: unknown, date: string): RecoveryOutT {
+// SpO2 + skin temperature aren't carried by the deep-dive recovery tiles; they
+// live on the lightweight /developer/v2/recovery records (score.spo2_percentage,
+// score.skin_temp_celsius). Pick the record whose created date matches, else the
+// most recent — same rule the today/day projections use for HRV/RHR.
+function v2Score(recoveryV2: unknown, date: string): Record<string, unknown> {
+  const records = asArray(isObject(recoveryV2) ? recoveryV2.records : null).filter(isObject);
+  const pick = records.find((r) => asString(r.created_at)?.slice(0, 10) === date) ?? records[0];
+  return pick && isObject(pick.score) ? (pick.score as Record<string, unknown>) : {};
+}
+
+export function projectRecovery(raw: unknown, date: string, recoveryV2?: unknown): RecoveryOutT {
   const items: Array<{ type: string; content: Record<string, unknown> }> = [];
   collectItems(raw, items);
 
@@ -92,6 +102,12 @@ export function projectRecovery(raw: unknown, date: string): RecoveryOutT {
   const sleepPerf = readMetric("SLEEP_PERFORMANCE");
   const spo2 = readMetric("SPO2");
   const skinTemp = readMetric("SKIN_TEMPERATURE");
+  // Fall back to the /developer/v2/recovery record for SpO2/skin temp, which the
+  // deep-dive tiles omit.
+  const v2 = v2Score(recoveryV2, date);
+  const spo2Pct = spo2.current ?? asNumber(v2.spo2_percentage);
+  const skinTempCRaw = skinTemp.current ?? asNumber(v2.skin_temp_celsius);
+  const skinTempC = skinTempCRaw === null ? null : Math.round(skinTempCRaw * 10) / 10;
 
   return {
     date,
@@ -108,8 +124,8 @@ export function projectRecovery(raw: unknown, date: string): RecoveryOutT {
       delta_pct: pct(rhr.current, rhr.baseline),
     },
     respiratory_rate: respiratory.current,
-    spo2_pct: spo2.current,
-    skin_temp_c: skinTemp.current,
+    spo2_pct: spo2Pct,
+    skin_temp_c: skinTempC,
     sleep_performance_pct: sleepPerf.current,
     contributors: [],
     calibration_state: null,

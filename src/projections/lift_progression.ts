@@ -1,5 +1,21 @@
 import type { LiftProgressionOutT } from "../schemas/strength.js";
-import { isObject, asArray, asNumber, asString, labelToNumber } from "../lib/walk.js";
+import { isObject, asArray, asNumber, asString, labelToNumber, timeLabelToMs } from "../lib/walk.js";
+
+type SegLabel = "week" | "month" | "six_month" | "year";
+
+// segment_controller.element_names is the canonical, in-order list of which
+// windows this exercise actually has — e.g. ["M", "6M"] when there's no weekly
+// data. Positional [week, month, ...] labeling was wrong whenever a window was
+// absent (lifts are infrequent, so "week" often is). Map the codes instead.
+function labelFromElementName(code: string): SegLabel | null {
+  switch (code.toUpperCase().replace(/\s/g, "")) {
+    case "W": case "1W": case "WEEK": return "week";
+    case "M": case "1M": case "MONTH": return "month";
+    case "6M": case "SIXMONTH": return "six_month";
+    case "Y": case "1Y": case "YEAR": return "year";
+    default: return null;
+  }
+}
 
 // Whoop's /progression-service/v3/exercise/{id} mirrors the trend endpoint shape:
 //   {week,month,six_month,year}_time_segment with same metrics-array + graph layout.
@@ -20,6 +36,10 @@ interface PointOut {
   top_weight: number | null;
 }
 
+function parseDisplay(display: string | null, rawValue: unknown): number | null {
+  return labelToNumber(display) ?? timeLabelToMs(display) ?? asNumber(rawValue);
+}
+
 function extractPoints(graph: unknown): PointOut[] {
   const g = isObject(graph) ? graph : {};
   const out: PointOut[] = [];
@@ -37,20 +57,31 @@ function extractPoints(graph: unknown): PointOut[] {
         const valueDisplay = asString(dsd.value_display) ?? labelStr;
         out.push({
           date: asString(dsd.primary_contextual_display) ?? "",
-          volume: labelToNumber(valueDisplay) ?? asNumber(dsd.value),
+          volume: parseDisplay(valueDisplay, dsd.value),
           reps: null,
           top_weight: null,
         });
       }
     }
+    // Bar plots: value + date live in bar_groups[].bars[].data_scrubber_details.
     for (const grp of asArray(plot.bar_groups)) {
       if (!isObject(grp)) continue;
-      const topLabel = isObject(grp.top_label) ? (grp.top_label as Record<string, unknown>) : null;
-      const label = topLabel ? asString(topLabel.label) : null;
-      const dsd = isObject(grp.data_scrubber_details) ? (grp.data_scrubber_details as Record<string, unknown>) : {};
+      const bars = asArray(grp.bars);
+      const topLabel = isObject(grp.top_label) ? asString((grp.top_label as Record<string, unknown>).label) : null;
+      const candidates = bars.length > 0 ? bars : [grp];
+      let chosen: { date: string; value_display: string | null; raw: unknown } | null = null;
+      for (const bar of candidates) {
+        if (!isObject(bar)) continue;
+        const dsd = isObject(bar.data_scrubber_details) ? (bar.data_scrubber_details as Record<string, unknown>) : {};
+        const vd = asString(dsd.value_display) ?? topLabel;
+        const cand = { date: asString(dsd.primary_contextual_display) ?? "", value_display: vd, raw: dsd.value };
+        if (chosen === null) chosen = cand;
+        if (vd !== null) { chosen = cand; break; }
+      }
+      if (chosen === null) continue;
       out.push({
-        date: asString(dsd.primary_contextual_display) ?? "",
-        volume: labelToNumber(label),
+        date: chosen.date,
+        volume: parseDisplay(chosen.value_display, chosen.raw),
         reps: null,
         top_weight: null,
       });
@@ -63,7 +94,7 @@ export function projectLiftProgression(raw: unknown, exerciseId: string, endDate
   const root = isObject(raw) ? raw : {};
   const segments: LiftProgressionOutT["segments"] = [];
 
-  function pushSeg(label: "week" | "month" | "six_month" | "year", s: Record<string, unknown>) {
+  function pushSeg(label: SegLabel, s: Record<string, unknown>) {
     if (s.is_hidden === true) return;
     const dp = isObject(s.date_picker) ? (s.date_picker as Record<string, unknown>) : {};
     const metricsArr = asArray(s.metrics);
@@ -80,9 +111,15 @@ export function projectLiftProgression(raw: unknown, exerciseId: string, endDate
   }
 
   if (Array.isArray(root.time_segments)) {
+    // Label each segment from segment_controller.element_names (the windows this
+    // exercise actually has), falling back to positional order only if a code is
+    // unrecognized.
+    const controller = isObject(root.segment_controller) ? (root.segment_controller as Record<string, unknown>) : {};
+    const elementNames = asArray(controller.element_names).map((x) => asString(x));
+    const positional = ["week", "month", "six_month", "year"] as const;
     for (const [i, s] of (root.time_segments as Record<string, unknown>[]).entries()) {
-      const labels = ["week", "month", "six_month", "year"] as const;
-      const label = labels[i] ?? "year";
+      const code = elementNames[i];
+      const label = (code ? labelFromElementName(code) : null) ?? positional[i] ?? "year";
       pushSeg(label, s);
     }
   }

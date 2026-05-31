@@ -60,6 +60,65 @@ export function isUtcIso(s: string): boolean {
   return UTC_ISO_RE.test(s);
 }
 
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/**
+ * Return the UTC offset (e.g. "-07:00") observed in `tz` at the given instant.
+ * Handles IANA names (via Intl) and fixed offsets ("-0700" / "-07:00").
+ */
+function offsetAt(instant: Date, tz: string): string {
+  const fixed = parseFixedOffset(tz);
+  if (fixed) return `${fixed.sign}${fixed.hh}:${fixed.mm}`;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "longOffset",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const raw = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const m = raw.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+  if (!m) return "+00:00";
+  return `${m[1]}${m[2]!.padStart(2, "0")}:${(m[3] ?? "00").padStart(2, "0")}`;
+}
+
+/**
+ * Build an ISO-8601 timestamp with explicit offset for a wall-clock time on a
+ * given calendar date in `tz`. Used by projections (stress, in-workout HR) whose
+ * source data carries only local clock labels ("9:38 AM") with no absolute
+ * timestamp.
+ *
+ *   wallClockIso("2026-05-30", 9, 38, "America/Los_Angeles")
+ *     → "2026-05-30T09:38:00-07:00"
+ *
+ * The offset is resolved for that wall-clock instant, so it's DST-correct except
+ * within the ~1h fold around a transition, which is immaterial here.
+ */
+export function wallClockIso(
+  date: string,
+  hour: number,
+  minute: number,
+  tz: string = getTimezone(),
+): string {
+  const ref = new Date(`${date}T${pad2(hour)}:${pad2(minute)}:00Z`);
+  const offset = Number.isNaN(ref.getTime()) ? "+00:00" : offsetAt(ref, tz);
+  return `${date}T${pad2(hour)}:${pad2(minute)}:00${offset}`;
+}
+
+/** "9:38 AM" / "11:52 PM" / "14:05" → minutes since midnight (0..1439), or null. */
+export function clockLabelToMinutes(label: string | null): number | null {
+  if (!label) return null;
+  const m = label.trim().match(/^(\d{1,2}):(\d{2})\s*([AP]M)?$/i);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2]);
+  const ap = m[3]?.toUpperCase();
+  if (ap === "PM" && h !== 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
 function parseFixedOffset(s: string): { sign: "+" | "-"; hh: string; mm: string } | null {
   const m = s.match(FIXED_OFFSET_RE);
   if (!m) return null;
