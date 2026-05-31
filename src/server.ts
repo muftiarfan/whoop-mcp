@@ -13,6 +13,7 @@ import { TokenManager } from "./whoop/token_manager.js";
 import { EnvFileTokenStore, MemoryTokenStore, type TokenStore } from "./whoop/token_store.js";
 import { registerTools } from "./tools/register.js";
 import { startTimezoneAutoDetect } from "./whoop/init_timezone.js";
+import { resolveInstallationId } from "./whoop/installation.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = resolve(__dirname, "../.env");
@@ -31,6 +32,11 @@ function chooseStore(): TokenStore {
 }
 
 async function main(): Promise<void> {
+  // Generate + persist a stable per-install identifier before any request goes
+  // out, so every data request carries the same `x-whoop-installation-identifier`
+  // the iOS app sends. Persisted to the env file like the tokens.
+  resolveInstallationId(ENV_PATH);
+
   const tokenManager = new TokenManager({
     email: requireEnv("WHOOP_EMAIL"),
     accessToken: requireEnv("WHOOP_IOS_BEARER_TOKEN"),
@@ -57,7 +63,7 @@ async function main(): Promise<void> {
   }
 
   // stdio (default — local Claude Desktop / Claude Code)
-  const server = new McpServer({ name: "whoop", version: "1.2.0" });
+  const server = new McpServer({ name: "whoop", version: "1.2.1" });
   registerTools(server, client);
   await server.connect(new StdioServerTransport());
 }

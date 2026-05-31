@@ -1,4 +1,5 @@
 import { BASE_URL, API_VERSION, REQUEST_TIMEOUT_MS } from "./constants.js";
+import { deviceHeaders } from "./device.js";
 import {
   WhoopApiError,
   WhoopAuthExpiredError,
@@ -59,9 +60,14 @@ export class WhoopClient {
     }
 
     const token = await this.config.getToken();
+    // Start from the iOS app's identity headers (user-agent, x-whoop-*, locale,
+    // accept, priority — see device.ts), then layer auth and, for writes, the
+    // body content-type on top so they always win. `accept-encoding` is left
+    // unset on purpose: setting it manually disables undici's automatic response
+    // decompression, which would break response.json().
     const headers: Record<string, string> = {
-      authorization: `bearer ${token}`,
-      accept: "application/json",
+      ...deviceHeaders(),
+      authorization: `Bearer ${token}`,
     };
     let bodyString: string | undefined;
     if (body !== undefined) {

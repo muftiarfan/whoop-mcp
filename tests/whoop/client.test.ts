@@ -33,9 +33,16 @@ describe("WhoopClient", () => {
     expect(url).toContain("date=2026-05-23");
     expect(url).toContain("/home-service/v1/home");
     expect((init as RequestInit).method).toBe("GET");
+    // Auth uses the capitalized "Bearer" scheme the iOS app sends, and the
+    // request carries the app's identity headers so it blends with real app
+    // traffic (see src/whoop/device.ts).
     expect((init as RequestInit).headers).toMatchObject({
-      authorization: "bearer test-bearer",
-      accept: "application/json",
+      authorization: "Bearer test-bearer",
+      accept: "*/*",
+      "user-agent": "iOS",
+      "x-whoop-device-platform": "iOS",
+      "x-whoop-ios-version": "5.52.0",
+      "x-whoop-bundle-name": "com.whoop.iphone",
     });
   });
 
