@@ -4,6 +4,36 @@ All notable changes to this project. Format roughly follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-05-31
+
+A correctness + stealth pass. Every read and write tool was exercised individually against a live account (each call's raw API exchange compared with the projected output and the state read back), which surfaced a class of "returns HTTP 200 but the payload is empty or wrong" bugs that receipt-only testing missed.
+
+### Added
+
+- **iOS-app identity headers on every data request.** The data client now sends the WHOOP iOS app's own header set — `user-agent: iOS`, `x-whoop-device-platform`/`-ios-version`/`-ios-build-number`/`-bundle-name`/`-installation-identifier`/`-time-zone`/`-clock-format`, `currency`/`locale`/`accept-language`/`priority`, and the capitalized `Bearer` scheme — captured from a live mitmproxy session (`src/whoop/device.ts`). Previously requests were a bare bearer token, which is trivially distinguishable from the app. The static values are the app's shared constants (camouflage, not a per-user signature); the installation identifier is a per-install random UUID persisted to `.env` (`src/whoop/installation.ts`, new `WHOOP_INSTALLATION_ID`); timezone is host-derived. We deliberately send nothing the app doesn't (no Sentry/`baggage`/`sentry-trace`, no marketing cookies), since a unique invented header in open-source code would be the exact one-line WAF rule to avoid. Transport-layer fingerprint (TLS/HTTP-2) is left unchanged — out of scope, and a Node TLS signature can't be hidden anyway. Full reasoning in `WHOOP.md` → "Headers for data requests".
+- **`whoop_behavior_impact` is now self-discovering.** Called with no `behavior_id` it returns the list of every behavior with its `impact_uuid` + headline effect (from `GET /behavior-impact-service/v1/impact`); called with a UUID it returns the detail. Previously the tool only had the detail mode and required an impact UUID that **no other tool exposed** — so it was effectively un-callable by an AI (the catalog gate it carried pointed at the numeric `behavior_tracker_id`, the wrong id). The wrong gate was removed.
+
+### Fixed
+
+These all returned `200` with an empty or wrong projection before — the kind of bug that passes a green test suite and a status-code check:
+
+- **`whoop_stress` returned an empty timeline.** The projection read `stress_state.timeline`, but `stress_state` is a string (`"RELAXED"`); the real data is in `gauge` (current level) + `stress_graph.graph` (the intraday points). Rewritten; the ~700-point graph is downsampled to ≤48 timeline points with reconstructed timestamps.
+- **`whoop_trend` returned `value: null` (and blank dates) for every time/duration metric** (TIME_IN_BED, SLEEP_DEBT_POST, RESTORATIVE_SLEEP, the three STRESS metrics, HR_ZONES_1_3/4_5, STRENGTH_ACTIVITY_TIME). Those metrics render as bar plots — the value + date live in `bar_groups[].bars[].data_scrubber_details`, not the group-level label the projection read — and `labelToNumber` rejected the `"11:14"` duration form. Now reads the per-bar details and falls back to `timeLabelToMs`.
+- **`whoop_cycle` returned all-null despite a populated response.** The projection searched for tile types (`CYCLE_PHASE_TILE`, `HORMONAL_MODE_TILE`) that don't exist in the `menstrual-cycle-insights` BFF. Rewritten to read the real tiles — `HEADER_TILE` (phase + "Cycle Day N"), `TYPICAL_CYCLE_TILE` (cycle length), `CALENDAR_TILE` (period/ovulation predictions from first-day-of-phase markers). Also: this endpoint must be called **with** the `date` query param (it 404s without it) — which is why it was previously misdiagnosed as "women's-health not enabled".
+- **`whoop_workout` `hr_curve` was always empty.** The points carry no timestamp field — the bpm is in `value_display`, the time is `position_x` (fraction of the workout window). The old code looked for a `timestamp`/`dsd.timestamp` that never existed and dropped every point. Now rebuilt from `start + position_x·duration`, downsampled to ≤120 points.
+- **`whoop_lift_progression` mislabeled its segments** (`week`/`month`) for exercises that only have `month`/`six_month` data, because it labeled by array position. Now labels from `segment_controller.element_names`. Same bar-plot parsing fix as `whoop_trend`.
+- **`whoop_recovery` returned null SpO2 / skin temperature.** Those aren't in the deep-dive tiles; the tool now also fetches `/developer/v2/recovery` and reads `score.spo2_percentage` / `score.skin_temp_celsius`.
+- **`whoop_coach_ask` returned a truncated reply.** The Whoop Coach response streams token-by-token, and the poll loop broke on the first non-empty chunk — so it returned a fragment like `"56"` instead of the finished answer. Now keeps the latest text and stops only when the turn is `COMPLETE` (or the text settles).
+- **`whoop_symptom_log` crashed on menstruation-only / cervical-mucus-only calls** (`Cannot read properties of undefined (reading 'length')` when `symptoms` was omitted). Guarded with a default — the zod default already covered the live MCP path, but the handler is now robust on any path.
+
+### Changed
+
+- **`whoop_journal_log` description now warns it REPLACES the day's entry** and instructs reading `whoop_journal` first to avoid silently wiping behaviors already logged that day.
+- **`whoop_smart_alarm_set` description routes wake-time changes to `mode=schedule`.** `mode=preferences` returns 200 but its `lower/upper_time_bound` don't persist when an explicit schedule exists (server-ignored, verified live); the schedule mode is what actually controls the wake time.
+- Description clarifications for `whoop_cycle` (needs women's-health enabled; some fields always null) and `whoop_workout` (a just-logged activity is `pending` and errors on detail reads until scored).
+- **Tool descriptions rewritten across the surface** — terser and deliberately example-free for id-taking tools (listing sample ids led the model to guess ones outside the list; now it must read the catalog), with the catalog read enforced by a hard gate that errors until the matching catalog tool (`whoop_sports_catalog` / `whoop_lift_catalog` / `whoop_journal_catalog`) has been called that session (`whoop_activity_create`, the three lift writes, `whoop_journal_log`, `whoop_symptom_log`).
+- Test suite 178 → **212** — added `tests/projections/round3_data_fixes.test.ts` (regressions for every projection bug above; each assert fails against the pre-fix code) plus new committed fixtures (`cycle_insights.json`, `behavior_impact_list.json`, `recovery_v2.json`, `trend_time_in_bed.json`).
+
 ## [1.2.0] — 2026-05-29
 
 ### Security

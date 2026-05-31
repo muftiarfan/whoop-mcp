@@ -27,7 +27,7 @@
   <img src="assets/demo.png" alt="Claude Desktop using whoop-mcp to check today's recovery — a 56% (yellow) recovery gauge with HRV, resting HR, sleep performance, and respiratory-rate cards, plus Claude's narrative breakdown" width="820">
 </p>
 
-48 tools, structured zod-validated outputs, bundled catalogs (372 exercises, 308 behaviors, 203 sports, 311 endpoints), write-safety harness, automatic Cognito token refresh, session-scoped catalog gate. TypeScript 6, Node 24, 178 tests.
+48 tools, structured zod-validated outputs, bundled catalogs (372 exercises, 308 behaviors, 203 sports, 311 endpoints), write-safety harness, automatic Cognito token refresh, session-scoped catalog gate. TypeScript 6, Node 24, 212 tests.
 
 > *Note: this works through Whoop's private iOS API rather than the public OAuth API. That isn't what Whoop's terms allow — see the [FAQ](#faq) if you want the full picture before installing.*
 
@@ -125,7 +125,7 @@ This MCP wraps the iOS surface.
 | Hypnogram (per-stage sleep timeline) + full stage breakdown (ms + %) + in-sleep HR | `whoop_sleep` |
 | Strength Trainer — every set, every workout, full 372-exercise catalog, PRs | `whoop_lift_*` (8 tools) |
 | 308-behavior Journal + behavior impact analysis | `whoop_journal*` (5 tools) |
-| Stress monitor (15-min buckets) | `whoop_stress, whoop_live_stress` |
+| Stress monitor (intraday timeline) | `whoop_stress, whoop_live_stress` |
 | Whoop Coach AI chat | `whoop_coach_ask` |
 | Smart Alarm (read + 4 write modes) | `whoop_smart_alarm*` |
 | HR zones (read + configure max HR / 5 custom zones) | `whoop_hr_zones*` |
@@ -220,6 +220,8 @@ Whoop's iOS app uses **AWS Cognito** routed through a Whoop-owned proxy (`/auth-
 
 **Bootstrap once** (email + password + SMS MFA code if your account has it on) → tokens written to `.env`. **After that, it's hands-off**: access tokens auto-refresh every 24h via the refresh token; refresh token lives ~30 days. Single-flight refresh gate prevents thundering-herd refreshes when concurrent tool calls all see a stale token at the same time.
 
+Auth requests impersonate the iOS AWS Swift SDK (the proxy 403s a Node-style User-Agent), and data requests carry the **WHOOP iOS app's own identity headers** (`user-agent: iOS`, the `x-whoop-*` device set, a per-install identifier) so the traffic blends with the legitimate app rather than standing out — see [`WHOOP.md` → Headers for data requests](WHOOP.md) for the full set and the reasoning.
+
 **Error classes** (`src/whoop/errors.ts`):
 
 | Error | When | Behavior |
@@ -285,6 +287,8 @@ Four datasets compiled into the MCP at build time (not fetched at runtime):
 | `WHOOP_COGNITO_REFRESH_TOKEN` | yes | Cognito refresh token (~30d) |
 | `WHOOP_USER_ID` | no | Your Whoop user ID — used by `whoop_profile`, `whoop_leaderboard`. Avoids one bootstrap call per session. |
 | `WHOOP_TIMEZONE` | no | IANA timezone (e.g., `America/Los_Angeles`). If unset, auto-detected from your Whoop profile and refreshed hourly. Set explicitly to override. |
+| `WHOOP_INSTALLATION_ID` | no (auto) | The per-install device identifier sent as `x-whoop-installation-identifier`. Generated once and written to `.env` on first run — don't set it by hand. |
+| `WHOOP_TOKEN_STORE` | no | `envfile` (default — persists refreshed tokens back to `.env`) or `memory` (for read-only filesystems; re-bootstrap every ~30 days). |
 
 ### Claude Desktop config
 

@@ -476,20 +476,55 @@ The User-Agent must look like AWS's Swift SDK. We initially tried with a Node-st
 
 ### Headers for all other (data) requests
 
-After auth, every API call to `api.prod.whoop.com/<service>/<endpoint>` uses bearer-token auth:
+After auth, every API call to `api.prod.whoop.com/<service>/<endpoint>` carries the
+bearer token **plus the iOS app's full identity header set**, so our traffic sits
+inside the legitimate-app distribution instead of standing out as the one client
+that omits them (`src/whoop/device.ts` builds these; `src/whoop/client.ts` merges
+them):
 
 ```
-authorization: bearer <access token>
-accept: application/json
-content-type: application/json    (for POST/PUT/PATCH only)
-accept-encoding: gzip, deflate, br
-accept-language: en-US,en;q=0.9
-user-agent: WHOOP/<build> CFNetwork/<n> Darwin/<n>    (when calling from the iOS app)
+authorization: Bearer <access token>           (capital "Bearer", as the app sends)
+user-agent: iOS                                (literally "iOS" — the app's data-request UA)
+x-whoop-device-platform: iOS
+x-whoop-ios-version: 5.52.0                     ← app-version constant (bump on app updates)
+x-whoop-ios-build-number: 595097               ← build-number constant
+x-whoop-bundle-name: com.whoop.iphone
+x-whoop-installation-identifier: <UUID>         ← randomized per install, persisted to .env
+x-whoop-time-zone: <IANA name>                  ← derived from the host, like a phone
+x-whoop-clock-format: TWELVE_HOUR
+currency: USD
+locale: en_US
+accept-language: en
+accept: */*
+priority: u=3
+content-type: application/json                  (for POST/PUT/PATCH only)
 ```
 
-The MCP omits the iOS User-Agent since we're not pretending to be the app — we just need the token. Whoop doesn't seem to validate User-Agent on data endpoints.
+**Why these and not more.** The static values above are the app's *own* constants —
+shared by every real install on this version, so they're camouflage, not a
+signature. The installation identifier is randomized per install (uppercase UUID,
+persisted via `src/whoop/installation.ts` so it's stable across restarts), exactly
+like the app, so there's no shared constant to fingerprint. Timezone is derived
+from the host. We deliberately send **nothing the app doesn't** — no Sentry
+`baggage`/`sentry-trace`, no marketing cookies — because a unique invented header
+in open-source code would be the precise one-line WAF rule we're avoiding. We also
+don't set `accept-encoding` ourselves: doing so disables undici's automatic
+response decompression and would break `response.json()`.
 
-The `apiVersion=7` query parameter is automatically appended to every request by `src/whoop/client.ts:54`:
+Two of these headers also affect response *content*, and both were verified safe:
+`x-whoop-clock-format: TWELVE_HOUR` matches the server's existing default (our
+captures already return 12-hour clock labels, which `parseClockMinutes` expects),
+and `x-whoop-time-zone` only changes the wall-clock rendering of clock labels,
+which the sleep hypnogram consumes by *relative spacing* anchored to the UTC
+`[start,end]` window — so the timeline is zone-invariant.
+
+Not matched (deliberately, to stay this side of "over the top"): the transport
+fingerprint. We're Node/undici over HTTP/1.1 with a Node TLS signature, not iOS
+Network.framework over HTTP/2 — faking that would need curl-impersonate/uTLS and a
+datacenter IP claiming to be a phone is its own anomaly. App-layer headers are what
+a WHOOP engineer reading this repo could cheaply key on; those are what we match.
+
+The `apiVersion=7` query parameter is automatically appended to every request by `src/whoop/client.ts:56`:
 
 ```ts
 const url = new URL(BASE_URL + path);

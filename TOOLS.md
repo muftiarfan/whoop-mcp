@@ -11,7 +11,7 @@ Below is every tool with its signature, source endpoints, and notes. Inputs are 
 Composite snapshot of today: recovery score + state, sleep performance + stages, day strain so far, current activity state, workouts count.
 
 - **Input:** `{}`
-- **Source endpoints (3 parallel):** `GET /home-service/v1/home?date=today`, `GET /home-service/v1/deep-dive/sleep/last-night?date=today`, `GET /activities-service/v1/user-state`
+- **Source endpoints (3 parallel):** `GET /home-service/v1/home?date=today`, `GET /developer/v2/activity/sleep?limit=5` (light ~1 KB sleep summary — the full per-minute hypnogram is `whoop_sleep`'s job, not the snapshot's), `GET /activities-service/v1/user-state`
 - **Output:** `{date, recovery: {score, state, hrv_ms, rhr_bpm}, sleep: {performance_pct, total_sleep_ms, time_in_bed_ms, efficiency_pct, stages: {rem_ms, light_ms, sws_ms, wake_ms}, started_at, ended_at}, strain: {score, calories, avg_hr_bpm, max_hr_bpm, workouts_count}, current_state: {state, sport_name, started_at}}`
 
 #### `whoop_day`
@@ -90,11 +90,11 @@ Side-by-side comparison of two date windows across recovery / sleep performance 
 ### Stress + sleep coach (2)
 
 #### `whoop_stress`
-Full stress timeline for a day (15-minute buckets), current level, baseline, peak, min.
+Stress for a day: current level (0–3 scale, from the gauge), peak/min, and a downsampled intraday timeline. (`stress_state` on the wire is a string like `"RELAXED"`, not a timeline — the data lives in `gauge` + `stress_graph.graph`.)
 
 - **Input:** `{date?: string}`
 - **Source:** `GET /health-service/v2/stress-bff/{date}`
-- **Output:** `{date, current_level, baseline_level, peak_level, min_level, calibration_state, timeline: [{started_at, ended_at, level}]}`
+- **Output:** `{date, current_level, baseline_level, peak_level, min_level, calibration_state, timeline: [{started_at, ended_at, level}]}` — the raw graph has ~700 intraday samples; the timeline is evenly downsampled to ≤48 points (timestamps reconstructed from each sample's local clock label).
 
 #### `whoop_sleep_need`
 Recommended bedtime + sleep need breakdown (baseline + debt + strain + nap credit) + smart-alarm eligibility.
@@ -142,6 +142,8 @@ Full detail of one activity: HR curve, HR zone durations, calories, distance. St
 - **Input:** `{activity_id: string}`
 - **Source:** `GET /core-details-bff/v1/cardio-details?activityId=` (300 KB response)
 - **Output:** `{id, sport_name, start, end, duration_ms, strain, calories, distance_m, avg_hr_bpm, max_hr_bpm, zone_durations: HrZoneDurations, hr_curve: [{at, bpm}], msk: {total_volume_kg, intensity_pct, strain_score, is_strength_workout}}` (`distance_m` is currently always `null` — not extracted from `/cardio-details`)
+- **`hr_curve`:** reconstructed from the graph points — bpm from each point's `value_display`, timestamps from `position_x` × the workout window — then evenly downsampled to ≤120 points.
+- **Caveat:** a just-created/logged activity stays `score_state: "pending"` until Whoop scores it, and this endpoint returns 400 (`"Cannot view details for a pending activity"`) until then — so don't read details of a workout you just logged for a while.
 
 #### `whoop_activity_create` ⚠️ WRITE (gated by `whoop_sports_catalog`)
 Create a generic activity (manual entry — for when you did something without wearing the strap, or want to add a record after the fact).
@@ -262,15 +264,16 @@ Local lookup over the bundled 308-behavior catalog. Filter by category, magnitud
 - **Categories:** Drugs & Medication, Health & Symptoms, Hormonal Health, Lifestyle, Mental Wellbeing, Nutrition, Recovery, Sleep & Circadian Health, Supplements
 
 #### `whoop_behavior_impact`
-Per-behavior impact analysis — how this behavior has affected your recovery / HRV / sleep over time.
+Per-behavior impact analysis — how each tracked behavior has historically moved your recovery / HRV / sleep. Self-discovering: call with **no argument** to list every behavior with its `impact_uuid`, then call again with that UUID for the full breakdown. (The impact UUIDs aren't exposed by any other tool, so the list mode is what makes the detail mode reachable — the numeric `behavior_tracker_id` from the journal catalog is **not** the same id.)
 
-- **Input:** `{behavior_id: number | string}` (UUID preferred — pass the impact UUID from the v3 BFF, not the numeric `behavior_tracker_id`)
-- **Source:** `GET /behavior-impact-service/v2/impact/details/{id}`
-- **Output:** `{behavior_id, behavior_name, metrics: [{metric, delta_avg, delta_unit, sample_size, direction}], insight}`
-- **Caveat:** This endpoint requires history — fresh accounts return 500 (no impact data computed yet). Brian's account works; the dummy doesn't.
+- **Input:** `{behavior_id?: string}` — omit for the list; pass an `impact_uuid` from that list for the detail.
+- **Source:** `GET /behavior-impact-service/v1/impact` (list) OR `GET /behavior-impact-service/v2/impact/details/{impact_uuid}` (detail)
+- **Output (list):** `{behaviors: [{impact_uuid, behavior_name, direction: "positive"|"negative"|"neutral"|"insufficient", impact_display, has_sufficient_data}]}`
+- **Output (detail):** `{behavior_id, behavior_name, metrics: [{metric, delta_avg, delta_unit, sample_size, direction}], insight}`
+- **Caveat:** needs journal history — accounts with little/no logged data return an empty list (every behavior `has_sufficient_data: false`). The `impact_uuid` is per-fetch, so always read it from the live list rather than hardcoding.
 
 #### `whoop_journal_log` ⚠️ WRITE (gated by `whoop_journal_catalog`)
-Save a full journal entry. Replaces the existing entry for that date with the new set of behaviors. Use empty `behaviors: []` to clear the entry.
+Save a full journal entry. **Replaces** the existing entry for that date with the new set of behaviors — so read `whoop_journal` first and resend the day's existing entries along with your additions, or they'll be wiped. Use empty `behaviors: []` to clear the entry.
 
 - **Input:** `{date?: string, behaviors: [{behavior_tracker_id, answered_yes?, magnitude_value?, magnitude_label?}], notes?: string, confirm?: boolean}`
 - **Source:** `PUT /journal-service/v2/journals/entries/user/date/{date}`
@@ -288,12 +291,12 @@ Trigger Whoop's auto-populate engine — it reads your HealthKit data and workou
 ### Women's health (1 read + 2 write)
 
 #### `whoop_cycle`
-Current menstrual cycle status — phase, cycle day, prediction, hormonal mode, pregnancy state.
+Current menstrual cycle status — phase, cycle day, typical cycle length, and predicted next-period / ovulation dates.
 
 - **Input:** `{date?: string}`
-- **Source:** `GET /womens-health-service/v1/menstrual-cycle-insights?date=`
+- **Source:** `GET /womens-health-service/v1/menstrual-cycle-insights?date=` (a `tiles[]` BFF — `phase`/`cycle_day` from the `HEADER_TILE`, `cycle_length` from the `TYPICAL_CYCLE_TILE` stats, predictions derived from the `CALENDAR_TILE` first-day-of-phase markers)
 - **Output:** `{date, phase, cycle_day, cycle_length, next_period_predicted_date, ovulation_predicted_date, hormonal_mode, contraception_type, is_pregnant}`
-- **Caveat:** This endpoint requires the user's `contraception_type` to be set. If not, returns 400 with `"User has no contraception status"`. The user must run the MCI survey first (Whoop's iOS onboarding does this — or you can do it via `whoop_raw` to `PUT /health-service/v1/hormonal-insights/settings/mci/survey`).
+- **Caveats:** requires women's-health tracking enabled on the account — when it isn't, the endpoint still returns 200 and the projection degrades to all-null. `hormonal_mode` / `contraception_type` / `is_pregnant` are account settings this BFF doesn't carry, so they're always null here; `cycle_length` is null until there's enough history; predictions are null when the predicted day falls outside the returned month. **Pass the `date` param** — querying the endpoint without it 404s.
 
 #### `whoop_cycle_log` ⚠️ WRITE
 Log a period start or ovulation event for a date.
@@ -352,6 +355,7 @@ Update one schedule, the global preferences, or the master enable/disable.
   - `master_enable` → `PUT /smart-alarm-service/v1/alarm-schedule/enable`
   - `master_disable` → `PUT /smart-alarm-service/v1/alarm-schedule/disable`
 - **Output:** `{updated: true, mode}` (or preview)
+- **To change the wake time, use `mode=schedule`** (`schedule_id` + `latest_wake_time`) — that's the setting that actually controls when the alarm fires. `mode=preferences` sets the global goal + enable flags, but its `lower/upper_time_bound` are ignored by the server whenever an explicit schedule exists (the PUT returns 200 but the bounds don't change). Read `whoop_smart_alarm` first for the `schedule_id` + current values; schedule/preferences **replace**, they don't merge.
 
 ### Social (2)
 

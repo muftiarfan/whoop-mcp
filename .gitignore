@@ -58,3 +58,6 @@ fly.toml
 
 # deploy record written by `whoop-mcp cloud` (host-specific)
 .whoop-mcp-deploy.json
+tool_audit_results.json
+tool_audit_condensed.json
+captures/
