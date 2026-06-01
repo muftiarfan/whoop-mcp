@@ -24,9 +24,7 @@
 </p>
 
 <p align="center">
-  <!-- ▶ DEMO: open this file in the GitHub web editor and DRAG the .mp4 onto this line.
-       GitHub re-hosts it as a user-attachments URL that renders an inline player.
-       (A repo-committed raw URL won't render inline — it forces a download.) -->
+  <video src="https://github.com/user-attachments/assets/b0101d7d-24ad-4341-a88c-dc6fae075f6e" controls muted width="820"></video>
 </p>
 <p align="center">
   <sub>▶ 2-min demo — the full <code>whoop-mcp cloud</code> flow: install → Whoop login → Fly deploy → Claude connector → first query.</sub>
